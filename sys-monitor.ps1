@@ -19,7 +19,7 @@ if ($username -like "*\*") {
     $user, $domain = $username -split "@", 2
 } else {
     Write-Host "Username must include domain (e.g., domain\\user or user@domain.com)" -ForegroundColor Red
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 8
     exit
 }
 
@@ -29,7 +29,7 @@ try {
 
     if ($userPrincipal -eq $null) {
         Write-Host "User not found or incorrect login information." -ForegroundColor Red
-        Start-Sleep -Seconds 5
+        Start-Sleep -Seconds 8
         exit
     }
 
@@ -43,7 +43,7 @@ try {
 
     if (-not $isAdmin) {
         Write-Host "User is not a member of the Domain Admins group. Access denied." -ForegroundColor Yellow
-        Start-Sleep -Seconds 5
+        Start-Sleep -Seconds 8
         exit
     }
 
@@ -106,7 +106,7 @@ try {
                             $action = Read-Host "What operation would you like to perform? (stop/restart)"
                             switch ($action) {
                                 "stop"    {
-                                    Stop-Service -Name $serviceName;
+                                    Stop-Service -Name $serviceName -Force;
                                     Clear-Host
                                     Write-Host "================================="
                                     Write-Host "  Created by: " -ForegroundColor Cyan -NoNewline
@@ -114,7 +114,7 @@ try {
                                     Write-Host "================================="
                                     Write-Host "$serviceName stopped." -ForegroundColor Red }
                                 "restart" {
-                                    Restart-Service -Name $serviceName ;
+                                    Restart-Service -Name $serviceName -Force ;
                                     Clear-Host
                                     Write-Host "================================="
                                     Write-Host "  Created by: " -ForegroundColor Cyan -NoNewline
@@ -210,10 +210,36 @@ try {
                         Write-Host "  Created by: " -ForegroundColor Cyan -NoNewline
                         Write-Host "S.Mohsen Hosseini" -ForegroundColor Red
                         Write-Host "================================="
-                        # Counting the number of occurrences of each process
+
+                        # نمایش تعداد هر پردازش
                         $procCounts = Get-Process | Group-Object ProcessName | Select-Object Name, @{Name="Count";Expression={($_.Count)}}
                         $procCounts | Sort-Object Count -Descending | Format-Table -AutoSize
+
+                        # تعداد کل پردازش‌ها
+                        $allProcs = Get-Process
+                        Write-Host "Total process count: $($allProcs.Count)" -ForegroundColor Cyan
+
+                        # اطلاعات RAM سیستم
+                        $os = Get-CimInstance Win32_OperatingSystem
+                        $totalGB = [math]::Round($os.TotalVisibleMemorySize * 1KB / 1GB, 2)
+                        $freeGB = [math]::Round($os.FreePhysicalMemory * 1KB / 1GB, 2)
+                        $usedGB = [math]::Round($totalGB - $freeGB, 2)
+                        $percentUsedRAM = [math]::Round(($usedGB / $totalGB) * 100, 2)
+
+                        # دریافت درصد مصرف CPU به صورت لحظه‌ای
+                        $cpuUsage = (Get-Counter '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue
+                        $cpuUsage = [math]::Round($cpuUsage, 2)
+
+                        # نمایش اطلاعات RAM و CPU
+                        Write-Host "---------------------------------" -ForegroundColor DarkGray
+                        Write-Host "Total system RAM:  $totalGB GB" -ForegroundColor Green
+                        Write-Host "Free system RAM:   $freeGB GB" -ForegroundColor Cyan
+                        Write-Host "Used system RAM:   $usedGB GB" -ForegroundColor Yellow
+                        Write-Host "RAM usage:         $percentUsedRAM %" -ForegroundColor Magenta
+                        Write-Host "CPU usage:         $cpuUsage %" -ForegroundColor Red
+                        Write-Host "---------------------------------" -ForegroundColor DarkGray
                     }
+
                     "d" {
                         Clear-Host
                         Write-Host "================================="
@@ -230,56 +256,79 @@ try {
                         Write-Host "  Created by: " -ForegroundColor Cyan -NoNewline
                         Write-Host "S.Mohsen Hosseini" -ForegroundColor Red
                         Write-Host "================================="
+
                         $raw = query user
-                        $raw | ForEach-Object { Write-Host $_ }
+                        $users = @()
+                        $index = 0
 
-                        # Count logged-in users
-                        $loggedInUsers = $raw | Where-Object { $_ -match '^\s*>?\s*(\S+)\s+(\S+)?\s+(\d+)\s' }
-                        $count = $loggedInUsers.Count
-                        Write-Host "`nNumber of logged-in users: $count" -ForegroundColor Cyan
+                        Write-Host "`nLogged-in Users:"
+                        Write-Host "---------------------------------"
+                        $raw | ForEach-Object {
+                            Write-Host $_
 
-                        $logoutChoice = Read-Host "`nPress L to log off all users or press Enter to go back"
-                        if ($logoutChoice -eq "L") {
-                            $excludedUsers = @("administrator", "otherUserName")
-                            $sessions = $raw | ForEach-Object {
-                                if ($_ -match '^\s*>?\s*(\S+)\s+(\S+)?\s+(\d+)\s') {
-                                    $line = ($_ -replace '^\s*>?\s*', '') -replace '\s{2,}', '|' -split '\|'
-                                    if ($line.Length -ge 3) {
-                                        [PSCustomObject]@{
-                                            User = $line[0].Trim()
-                                            ID   = $line[2].Trim()
-                                        }
+                            if ($_ -match '^\s*>?\s*(\S+)\s+(\S+)?\s+(\d+)\s') {
+                                $line = ($_ -replace '^\s*>?\s*', '') -replace '\s{2,}', '|' -split '\|'
+                                if ($line.Length -ge 3) {
+                                    $users += [PSCustomObject]@{
+                                        Index = $index
+                                        User  = $line[0].Trim()
+                                        ID    = $line[2].Trim()
                                     }
+                                    $index++
                                 }
                             }
+                        }
 
-                            foreach ($s in $sessions) {
-                                $username = $s.User -replace '^>', ''
-                                $username = $username.ToLower()
-                                Write-Host "Checking user: '$username'"
-                                if ($username -and -not ($excludedUsers -contains $username)) {
+                        Write-Host "`nNumber of logged-in users: $($users.Count)" -ForegroundColor Cyan
+
+                        Write-Host "`nOptions:"
+                        Write-Host "L - Log off ALL users (except administrator/otherUser)"
+                        Write-Host "T - Log off a single user"
+                        Write-Host "Press Enter to go back"
+
+                        $logoutChoice = Read-Host "`nChoose an option"
+
+                        $excludedUsers = @("administrator", "otherUser")
+
+                        if ($logoutChoice -eq "L") {
+                            foreach ($s in $users) {
+                                $username = $s.User.ToLower()
+                                if (-not ($excludedUsers -contains $username)) {
                                     try {
                                         logoff $s.ID /V
-
-                                        Clear-Host
-                                        Write-Host "================================="
-                                        Write-Host "  Created by: " -ForegroundColor Cyan -NoNewline
-                                        Write-Host "S.Mohsen Hosseini" -ForegroundColor Red
-                                        Write-Host "================================="
-
                                         Write-Host "User $($s.User) logged off successfully." -ForegroundColor Green
                                     } catch {
-                                        Clear-Host
-                                        Write-Host "================================="
-                                        Write-Host "  Created by: " -ForegroundColor Cyan -NoNewline
-                                        Write-Host "S.Mohsen Hosseini" -ForegroundColor Red
-                                        Write-Host "================================="
                                         Write-Host "Error logging off user $($s.User): $_" -ForegroundColor Red
                                     }
                                 }
                             }
+                        } elseif ($logoutChoice -eq "T") {
+                            Write-Host "`nSelect a user to log off:"
+                            foreach ($s in $users) {
+                                Write-Host "$($s.Index)) $($s.User) (Session ID: $($s.ID))"
+                            }
+
+                            $selectedIndex = Read-Host "Enter the index of the user you want to log off"
+                            if ($selectedIndex -match '^\d+$' -and $selectedIndex -lt $users.Count) {
+                                $targetUser = $users[$selectedIndex]
+                                $username = $targetUser.User.ToLower()
+
+                                if ($excludedUsers -contains $username) {
+                                    Write-Host "Cannot log off excluded user: $($targetUser.User)" -ForegroundColor Yellow
+                                } else {
+                                    try {
+                                        logoff $targetUser.ID /V
+                                        Write-Host "User $($targetUser.User) logged off successfully." -ForegroundColor Green
+                                    } catch {
+                                        Write-Host "Error logging off user $($targetUser.User): $_" -ForegroundColor Red
+                                    }
+                                }
+                            } else {
+                                Write-Host "Invalid selection." -ForegroundColor Red
+                            }
                         }
                     }
+
 
                     default {
                         Clear-Host
@@ -303,6 +352,6 @@ try {
     Write-Host "S.Mohsen Hosseini" -ForegroundColor Red
     Write-Host "================================="
     Write-Host "Error checking user information: $_" -ForegroundColor Red
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 8
     exit
 }
